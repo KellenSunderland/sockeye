@@ -318,7 +318,7 @@ class DotAttention(Attention):
 
             # scale down dot product by sqrt(num_hidden) [Vaswani et al, 17]
             if self.scale is not None:
-                query *= self.scale
+                query = query * self.scale
 
             # (batch_size, decoder_num_hidden, 1)
             expanded_decoder_state = mx.sym.expand_dims(query, axis=2)

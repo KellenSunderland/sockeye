@@ -159,7 +159,7 @@ class SmoothedCrossEntropyLoss(Loss):
         cross_entropy = mx.sym.where(labels, cross_entropy, mx.sym.zeros((0, self._vocab_size)))
 
         # compute cross_entropy
-        cross_entropy *= - mx.sym.log(data=probs + 1e-10)
+        cross_entropy = cross_entropy * - mx.sym.log(data=probs + 1e-10)
         cross_entropy = mx.sym.sum(data=cross_entropy, axis=1)
 
         if self._normalize:
