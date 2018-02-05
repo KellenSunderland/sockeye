@@ -179,7 +179,7 @@ class OutputLayer:
                                                    prefix=self.prefix)
             self.w = self.weight_norm()
 
-        self.b = mx.sym.Variable("%sbias" % self.prefix)
+        self.b = mx.sym.Variable("%sbias_float16" % self.prefix)
 
     def __call__(self,
                  hidden: Union[mx.sym.Symbol, mx.nd.NDArray],

@@ -167,13 +167,14 @@ class InferenceModel(model.SockeyeModel):
         mon.stat_helper = InferenceModel._printing_helper(self.decoder.dtype, 'decoder')
         #self.decoder_module.install_monitor(mon)
 
-        self.load_params_from_file(self.fname_params, dtype=None) # disable conversion
+        self.load_params_from_file(self.fname_params, dtype=np.float16)  # disable conversion
+
         self.encoder_module.init_params(arg_params=self.params, allow_missing=False)
         self.decoder_module.init_params(arg_params=self.params, allow_missing=False)
 
         if self.cache_output_layer_w_b:
             if self.output_layer.weight_normalization:
-                # precompute normalized output layer weight imperatively
+                # Precompute normalized output layer weight imperatively
                 assert self.output_layer.weight_norm is not None
                 weight = self.params[self.output_layer.weight_norm.weight.name].as_in_context(self.context)
                 scale = self.params[self.output_layer.weight_norm.scale.name].as_in_context(self.context)
@@ -270,7 +271,9 @@ class InferenceModel(model.SockeyeModel):
                 outputs = mx.sym.identity(target_decoded, name=C.LOGIT_INPUTS_NAME)
             else:
                 # logits: (batch_size, target_vocab_size)
+                target_decoded = mx.sym.cast(target_decoded, dtype=np.float16)
                 logits = self.output_layer(target_decoded)
+                logits = mx.sym.cast(logits, dtype=np.float32)
                 if self.softmax_temperature is not None:
                     logits /= self.softmax_temperature
                 outputs = mx.sym.softmax(data=logits, name=C.SOFTMAX_NAME)

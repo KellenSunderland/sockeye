@@ -155,16 +155,19 @@ class SockeyeModel:
                                                      "checkpoint has not happened yet." % fname)
         self.params, _ = utils.load_params(fname)
         if dtype:
-            logger.info('Converting params to %s', dtype.__name__)
+            logger.info('Adding %s params', dtype.__name__)
             SockeyeModel.convert_params(self.params, dtype)
         logger.info('Loaded params from "%s"', fname)
 
     @staticmethod
     def convert_params(params, dtype):
+        converted_parms = {}
         for k, v in params.items():
             if v.dtype != dtype:
-                logger.info('Converting %s to %s', k, dtype.__name__)
-                params[k] = v.astype(dtype=dtype)
+                dtype_suffix_key = k + '_' + dtype.__name__
+                logger.info('Converting %s to %s with new name %s', k, dtype.__name__, dtype_suffix_key)
+                converted_parms[dtype_suffix_key] = v.astype(dtype=dtype)
+        params.update(converted_parms)
 
     @staticmethod
     def save_version(folder: str):
@@ -189,7 +192,7 @@ class SockeyeModel:
         w_embed_target = mx.sym.Variable(C.TARGET_EMBEDDING_PREFIX + "weight",
                                          shape=(self.config.config_embed_target.vocab_size,
                                                 self.config.config_embed_target.num_embed))
-        w_out_target = mx.sym.Variable("target_output_weight",
+        w_out_target = mx.sym.Variable("target_output_weight_float16",
                                        shape=(self.config.vocab_target_size, self.decoder.get_num_hidden()))
 
         if self.config.weight_tying:
