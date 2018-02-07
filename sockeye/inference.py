@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 class InferenceModel(model.SockeyeModel):
     """
-    InferenceModel is a SockeyeModel that supports three operations used for inference/decoding:
+    InferenceModel is a SockeyeModel that supports two operations used for inference/decoding:
 
     (1) Encoder forward call: encode source sentence and return initial decoder states.
     (2) Decoder forward call: single decoder step: predict next word.
@@ -1082,21 +1082,27 @@ class Translator:
                 models_output_layer_b.append(m.output_layer_b.take(vocab_slice_ids))
 
         # (0) encode source sentence, returns a list
+        range_id = mx.nd.range_start('BeamS 0: Encode')
         model_states = self._encode(source, source_length)
+        mx.nd.range_end(range_id)
 
         for t in range(1, max_output_length):
 
             # (1) obtain next predictions and advance models' state
             # scores: (batch_size * beam_size, target_vocab_size)
             # attention_scores: (batch_size * beam_size, bucket_key)
+            range_id = mx.nd.range_start('BeamS 1: DecodeStep')
             scores, attention_scores, model_states = self._decode_step(sequences,
                                                                        t,
                                                                        source_length,
                                                                        model_states,
                                                                        models_output_layer_w,
                                                                        models_output_layer_b)
+            mx.nd.range_end(range_id)
 
             # (2) compute length-normalized accumulated scores in place
+            range_id = mx.nd.range_start('BeamS 2: Normalize')
+
             if t == 1 and self.batch_size == 1:  # only one hypothesis at t==1
                 scores = scores[:1] / self.length_penalty(lengths[:1])
             else:
@@ -1109,9 +1115,13 @@ class Translator:
                 #   pad_dist[finished, :] = np.inf
                 #   pad_dist[finished, C.PAD_ID] = scores_accumulated[finished]
                 scores = mx.nd.where(finished, pad_dist, scores)
+            mx.nd.range_end(range_id)
 
             # (3) get beam_size winning hypotheses for each sentence block separately
             # TODO(fhieber): once mx.nd.topk is sped-up no numpy conversion necessary anymore.
+
+            range_id = mx.nd.range_start('BeamS 3: Topk')
+
             scores = scores.asnumpy()  # convert to numpy once to minimize cross-device copying
             for sent in range(self.batch_size):
                 rows = slice(sent * self.beam_size, (sent + 1) * self.beam_size)
@@ -1121,34 +1131,77 @@ class Translator:
                 scores_accumulated[rows, 0] = utils.smallest_k(sliced_scores, self.beam_size, t == 1)
                 # offsetting since the returned smallest_k() indices were slice-relative
                 best_hyp_indices[rows] += rows.start
+            mx.nd.range_end(range_id)
 
             # Map from restricted to full vocab ids if needed
             if self.restrict_lexicon:
                 best_word_indices[:] = vocab_slice_ids.take(best_word_indices)
 
             # (4) get hypotheses and their properties for beam_size winning hypotheses (ascending)
-            sequences = mx.nd.take(sequences, best_hyp_indices)
-            lengths = mx.nd.take(lengths, best_hyp_indices)
-            finished = mx.nd.take(finished, best_hyp_indices)
-            attention_scores = mx.nd.take(attention_scores, best_hyp_indices)
-            attentions = mx.nd.take(attentions, best_hyp_indices)
+            range_id = mx.nd.range_start('BeamS 4: Takes')
+            if t % 2 == 0:
+                # Define symbols for tensors
+                best_hyp_indices_sym = mx.sym.Variable('best_hyp_indices_sym')
+                sequences_sym = mx.sym.Variable('sequences_sym')
+                lengths_sym = mx.sym.Variable('lengths_sym')
+                finished_sym = mx.sym.Variable('finished_sym')
+                attention_scores_sym = mx.sym.Variable('attention_scores_sym')
+                attentions_sym = mx.sym.Variable('attentions_sym')
+
+                # Define take operations
+                sequences_sym = mx.sym.take(sequences_sym, best_hyp_indices_sym)
+                lengths_sym = mx.sym.take(lengths_sym, best_hyp_indices_sym)
+                finished_sym = mx.sym.take(finished_sym, best_hyp_indices_sym)
+                attention_scores_sym = mx.sym.take(attention_scores_sym, best_hyp_indices_sym)
+                attentions_sym = mx.sym.take(attentions_sym, best_hyp_indices_sym)
+
+                group_take = mx.sym.Group([sequences_sym, lengths_sym, finished_sym, attention_scores_sym,
+                                           attentions_sym])
+                group_take_ex = group_take.bind(ctx=mx.gpu(0), args={'best_hyp_indices_sym': best_hyp_indices,
+                                                                     'sequences_sym': sequences,
+                                                                     'lengths_sym': lengths,
+                                                                     'finished_sym': finished,
+                                                                     'attention_scores_sym': attention_scores,
+                                                                     'attentions_sym': attentions})
+                group_take_result = group_take_ex.forward()
+
+                # Assign results
+                sequences = group_take_result[0]
+                lengths = group_take_result[1]
+                finished = group_take_result[2]
+                attention_scores = group_take_result[3]
+                attentions = group_take_result[4]
+            else:
+                sequences = mx.nd.take(sequences, best_hyp_indices)
+                lengths = mx.nd.take(lengths, best_hyp_indices)
+                finished = mx.nd.take(finished, best_hyp_indices)
+                attention_scores = mx.nd.take(attention_scores, best_hyp_indices)
+                attentions = mx.nd.take(attentions, best_hyp_indices)
+
+            mx.nd.range_end(range_id)
 
             # (5) update best hypotheses, their attention lists and lengths (only for non-finished hyps)
             # pylint: disable=unsupported-assignment-operation
+            range_id = mx.nd.range_start('BeamS 5: update')
             sequences[:, t] = best_word_indices
             attentions[:, t, :] = attention_scores
             lengths += mx.nd.cast(1 - mx.nd.expand_dims(finished, axis=1), dtype=self.models[0].decoder.dtype)
+            mx.nd.range_end(range_id)
 
             # (6) determine which hypotheses in the beam are now finished
+            range_id = mx.nd.range_start('BeamS 6: findfin')
             finished = ((best_word_indices == C.PAD_ID) + (best_word_indices == self.vocab_target[C.EOS_SYMBOL]))
             if mx.nd.sum(finished).asscalar() == self.batch_size * self.beam_size:  # all finished
                 # forces computation graphs to be the same
                 pass
                 #break
+            mx.nd.range_end(range_id)
 
             # (7) update models' state with winning hypotheses (ascending)
+            range_id = mx.nd.range_start('BeamS 7: sortstate')
             for ms in model_states:
                 ms.sort_state(best_hyp_indices)
+            mx.nd.range_end(range_id)
 
         return sequences, attentions, scores_accumulated, lengths
 
