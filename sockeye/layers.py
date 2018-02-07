@@ -17,6 +17,7 @@ from typing import Dict, Optional, Tuple, Union
 
 import mxnet as mx
 import numpy as np
+import os
 
 from . import constants as C
 from . import utils
@@ -178,8 +179,10 @@ class OutputLayer:
                                                    ndim=2,
                                                    prefix=self.prefix)
             self.w = self.weight_norm()
-
-        self.b = mx.sym.Variable("%sbias_float16" % self.prefix)
+        if os.getenv('USE_FP16_OUTPUTLAYER'):
+            self.b = mx.sym.Variable("%sbias_float16" % self.prefix)
+        else:
+            self.b = mx.sym.Variable("%sbias" % self.prefix)
 
     def __call__(self,
                  hidden: Union[mx.sym.Symbol, mx.nd.NDArray],
