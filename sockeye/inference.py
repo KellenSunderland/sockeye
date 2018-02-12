@@ -1123,24 +1123,29 @@ class Translator:
             mx.nd.range_end(range_id)
 
             # (3) get beam_size winning hypotheses for each sentence block separately
-            # TODO(fhieber): once mx.nd.topk is sped-up no numpy conversion necessary anymore.
 
             range_id = mx.nd.range_start('BeamS 3: Topk')
+            if not os.getenv('USE_GPU_TOPK'):
+                scores = scores.asnumpy()  # convert to numpy once to minimize cross-device copying
 
-            scores = scores.asnumpy()  # convert to numpy once to minimize cross-device copying
             for sent in range(self.batch_size):
                 rows = slice(sent * self.beam_size, (sent + 1) * self.beam_size)
                 sliced_scores = scores if t == 1 and self.batch_size == 1 else scores[rows]
                 # TODO we could save some tiny amount of time here by not running smallest_k for a finished sent
-                (best_hyp_indices[rows], best_word_indices[rows]), \
-                scores_accumulated[rows, 0] = utils.smallest_k(sliced_scores, self.beam_size, t == 1)
+                if os.getenv('USE_GPU_TOPK'):
+                    (best_hyp_indices[rows], best_word_indices[rows]), \
+                    scores_accumulated[rows] = utils.smallest_k_mx(sliced_scores, self.beam_size, t == 1)
+                else:
+                    (best_hyp_indices[rows], best_word_indices[rows]), \
+                        scores_accumulated[rows, 0] = utils.smallest_k(sliced_scores, self.beam_size, t == 1)
                 # offsetting since the returned smallest_k() indices were slice-relative
                 best_hyp_indices[rows] += rows.start
-            mx.nd.range_end(range_id)
 
             # Map from restricted to full vocab ids if needed
             if self.restrict_lexicon:
                 best_word_indices[:] = vocab_slice_ids.take(best_word_indices)
+
+            mx.nd.range_end(range_id)
 
             # (4) get hypotheses and their properties for beam_size winning hypotheses (ascending)
             range_id = mx.nd.range_start('BeamS 4: Takes')
