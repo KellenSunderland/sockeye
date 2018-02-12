@@ -781,3 +781,13 @@ def grouper(iterable: Iterable, size: int) -> Iterable:
 
 def mode_dtype(use_fp16: bool):
     return np.float16 if use_fp16 else np.float32
+
+
+def env_var_trueish(env_var_name: str) -> bool:
+    env_var_value = os.getenv(env_var_name)
+    if env_var_value is not None:
+        if env_var_value.lower() == "true":
+            return True
+        if env_var_value is "1":
+            return True
+    return False

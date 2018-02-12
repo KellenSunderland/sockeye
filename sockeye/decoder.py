@@ -518,7 +518,7 @@ class RecurrentDecoder(Decoder):
         self.hidden_w = mx.sym.Variable("%shidden_weight" % prefix, dtype=np.float32)
         self.hidden_b = mx.sym.Variable("%shidden_bias" % prefix, dtype=np.float32)
 
-        if os.getenv("USE_FP16_ATTENTION") is not None:
+        if utils.env_var_trueish("USE_FP16_ATTENTION") is not None:
             self.hidden_w_float16 = mx.sym.Variable("%shidden_weight_float16" % prefix, dtype=np.float16)
             self.hidden_b_float16 = mx.sym.Variable("%shidden_bias_float16" % prefix, dtype=np.float16)
         self.hidden_norm = layers.LayerNormalization(self.num_hidden,
@@ -860,7 +860,7 @@ class RecurrentDecoder(Decoder):
         return RecurrentDecoderState(hidden, rnn_pre_attention_layer_states + upper_rnn_layer_states), attention_state
 
     def _hidden_mlp(self, hidden_concat: mx.sym.Symbol, seq_idx: int) -> mx.sym.Symbol:
-        if os.getenv('USE_FP16_ATTENTION'):
+        if utils.env_var_trueish('USE_FP16_ATTENTION'):
             hidden_concat = mx.sym.cast(data=hidden_concat, dtype=np.float16)
             hidden = mx.sym.FullyConnected(data=hidden_concat,
                                            num_hidden=self.num_hidden,  # to state size of RNN
@@ -873,7 +873,7 @@ class RecurrentDecoder(Decoder):
                                            weight=self.hidden_w,
                                            bias=self.hidden_b,
                                            name='%shidden_fc_t%d' % (self.prefix, seq_idx))
-        if os.getenv('USE_FP16_ATTENTION'):
+        if utils.env_var_trueish('USE_FP16_ATTENTION'):
             hidden = mx.sym.cast(data=hidden, dtype=np.float32)
         if self.config.layer_normalization:
             hidden = self.hidden_norm.normalize(hidden)
@@ -888,7 +888,7 @@ class RecurrentDecoder(Decoder):
                       rnn_output: mx.sym.Symbol,
                       attention_state: rnn_attention.AttentionState,
                       seq_idx: int) -> mx.sym.Symbol:
-        if os.getenv('USE_FP16_ATTENTION'):
+        if utils.env_var_trueish('USE_FP16_ATTENTION'):
             hidden_concat = mx.sym.cast(data=hidden_concat, dtype=np.float16)
         gate = mx.sym.FullyConnected(data=hidden_concat,
                                      num_hidden=self.num_hidden,
@@ -898,7 +898,7 @@ class RecurrentDecoder(Decoder):
         gate = mx.sym.Activation(data=gate, act_type="sigmoid",
                                  name='%shidden_gate_act_t%d' % (self.prefix, seq_idx))
 
-        if os.getenv('USE_FP16_ATTENTION'):
+        if utils.env_var_trueish('USE_FP16_ATTENTION'):
             rnn_output = mx.sym.cast(data=rnn_output, dtype=np.float16)
         mapped_rnn_output = mx.sym.FullyConnected(data=rnn_output,
                                                   num_hidden=self.num_hidden,
@@ -906,7 +906,7 @@ class RecurrentDecoder(Decoder):
                                                   bias=self.mapped_rnn_output_b_float16,
                                                   name="%smapped_rnn_output_fc_t%d" % (self.prefix, seq_idx))
 
-        if os.getenv('USE_FP16_ATTENTION'):
+        if utils.env_var_trueish('USE_FP16_ATTENTION'):
             attention_state = mx.sym.cast(data=attention_state, dtype=np.float16)
         mapped_context = mx.sym.FullyConnected(data=attention_state.context,
                                                num_hidden=self.num_hidden,
@@ -922,7 +922,7 @@ class RecurrentDecoder(Decoder):
         # hidden: (batch_size, rnn_num_hidden)
         hidden = mx.sym.Activation(data=hidden, act_type="tanh",
                                    name="%snext_hidden_t%d" % (self.prefix, seq_idx))
-        if os.getenv('USE_FP16_ATTENTION'):
+        if utils.env_var_trueish('USE_FP16_ATTENTION'):
             hidden = mx.sym.cast(data=hidden, dtype=np.float32)
         return hidden
 

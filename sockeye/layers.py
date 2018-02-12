@@ -179,7 +179,7 @@ class OutputLayer:
                                                    ndim=2,
                                                    prefix=self.prefix)
             self.w = self.weight_norm()
-        if os.getenv('USE_FP16_OUTPUTLAYER'):
+        if utils.env_var_trueish('USE_FP16_OUTPUTLAYER'):
             self.b = mx.sym.Variable("%sbias_float16" % self.prefix)
         else:
             self.b = mx.sym.Variable("%sbias" % self.prefix)

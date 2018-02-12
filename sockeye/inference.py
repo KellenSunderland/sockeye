@@ -271,10 +271,10 @@ class InferenceModel(model.SockeyeModel):
                 outputs = mx.sym.identity(target_decoded, name=C.LOGIT_INPUTS_NAME)
             else:
                 # logits: (batch_size, target_vocab_size)
-                if os.getenv('USE_FP16_OUTPUTLAYER'):
+                if utils.env_var_trueish('USE_FP16_OUTPUTLAYER'):
                     target_decoded = mx.sym.cast(target_decoded, dtype=np.float16)
                 logits = self.output_layer(target_decoded)
-                if os.getenv('USE_FP16_OUTPUTLAYER'):
+                if utils.env_var_trueish('USE_FP16_OUTPUTLAYER'):
                     logits = mx.sym.cast(logits, dtype=np.float32)
                 if self.softmax_temperature is not None:
                     logits /= self.softmax_temperature
@@ -1125,14 +1125,14 @@ class Translator:
             # (3) get beam_size winning hypotheses for each sentence block separately
 
             range_id = mx.nd.range_start('BeamS 3: Topk')
-            if not os.getenv('USE_GPU_TOPK'):
+            if not utils.env_var_trueish('USE_GPU_TOPK'):
                 scores = scores.asnumpy()  # convert to numpy once to minimize cross-device copying
 
             for sent in range(self.batch_size):
                 rows = slice(sent * self.beam_size, (sent + 1) * self.beam_size)
                 sliced_scores = scores if t == 1 and self.batch_size == 1 else scores[rows]
                 # TODO we could save some tiny amount of time here by not running smallest_k for a finished sent
-                if os.getenv('USE_GPU_TOPK'):
+                if utils.env_var_trueish('USE_GPU_TOPK'):
                     (best_hyp_indices[rows], best_word_indices[rows]), \
                     scores_accumulated[rows] = utils.smallest_k_mx(sliced_scores, self.beam_size, t == 1)
                 else:
